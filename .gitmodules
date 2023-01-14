@@ -1,0 +1,4 @@
+[submodule "AutoMuteUsPortable"]
+	path = AutoMuteUsPortable
+	url = https://github.com/mtaku3/AutoMuteUs-Portable
+	branch = dev-v4

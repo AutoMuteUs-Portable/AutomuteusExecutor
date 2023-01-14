@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoMuteUsPortable.Executor", "AutoMuteUsPortable.Executor\AutoMuteUsPortable.Executor.csproj", "{7BE30648-312F-4C15-A6AA-AB548F90E39A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoMuteUsPortable.Shared", "AutoMuteUsPortable\AutoMuteUsPortable.Shared\AutoMuteUsPortable.Shared.csproj", "{AC5BDBA4-8969-40F9-AC55-4C1C3999A98C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoMuteUsPortable.PocketBaseClient", "AutoMuteUsPortable\AutoMuteUsPortable.PocketBaseClient\AutoMuteUsPortable.PocketBaseClient.csproj", "{146E535F-5142-4D51-87BB-C1A3AAD69B0A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7BE30648-312F-4C15-A6AA-AB548F90E39A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7BE30648-312F-4C15-A6AA-AB548F90E39A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7BE30648-312F-4C15-A6AA-AB548F90E39A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7BE30648-312F-4C15-A6AA-AB548F90E39A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AC5BDBA4-8969-40F9-AC55-4C1C3999A98C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AC5BDBA4-8969-40F9-AC55-4C1C3999A98C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AC5BDBA4-8969-40F9-AC55-4C1C3999A98C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AC5BDBA4-8969-40F9-AC55-4C1C3999A98C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{146E535F-5142-4D51-87BB-C1A3AAD69B0A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{146E535F-5142-4D51-87BB-C1A3AAD69B0A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{146E535F-5142-4D51-87BB-C1A3AAD69B0A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{146E535F-5142-4D51-87BB-C1A3AAD69B0A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
