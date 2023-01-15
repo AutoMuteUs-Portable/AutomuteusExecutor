@@ -1,64 +1,568 @@
-﻿using System.Reactive.Subjects;
+﻿using System.Diagnostics;
+using System.IO.Compression;
+using System.Management;
+using System.Reactive.Subjects;
+using AutoMuteUsPortable.PocketBaseClient;
 using AutoMuteUsPortable.Shared.Controller.Executor;
 using AutoMuteUsPortable.Shared.Entity.ExecutorConfigurationBaseNS;
+using AutoMuteUsPortable.Shared.Entity.ExecutorConfigurationNS;
 using AutoMuteUsPortable.Shared.Entity.ProgressInfo;
+using AutoMuteUsPortable.Shared.Utility;
+using AutoMuteUsPortable.Shared.Utility.Dotnet.ZipFileProgressExtensionsNS;
+using FluentValidation;
 
 namespace AutoMuteUsPortable.Executor;
 
 public class ExecutorController : ExecutorControllerBase
 {
-    public new static Dictionary<string, Parameter> InstallParameters = new();
-    public new static Dictionary<string, Parameter> UpdateParameters = new();
+    private readonly PocketBaseClientApplication _pocketBaseClientApplication = new();
+    private Process? _process;
 
     public ExecutorController(object executorConfiguration) : base(executorConfiguration)
     {
-        throw new NotImplementedException();
+        #region Check variables
+
+        var binaryDirectory = Utils.PropertyByName<string>(executorConfiguration, "binaryDirectory");
+        if (binaryDirectory == null)
+            throw new InvalidDataException("binaryDirectory cannot be null");
+
+        var binaryVersion = Utils.PropertyByName<string>(executorConfiguration, "binaryVersion");
+        if (binaryVersion == null)
+            throw new InvalidDataException("binaryVersion cannot be null");
+
+        var version = Utils.PropertyByName<string>(executorConfiguration, "version");
+        if (version == null) throw new InvalidDataException("version cannot be null");
+
+        ExecutorType? type = Utils.PropertyByName<ExecutorType>(executorConfiguration, "type");
+        if (type == null) throw new InvalidDataException("type cannot be null");
+
+        var environmentVariables =
+            Utils.PropertyByName<Dictionary<string, string>>(executorConfiguration, "environmentVariables");
+        if (environmentVariables == null) throw new InvalidDataException("environmentVariables cannot be null");
+
+        #endregion
+
+        #region Create ExecutorConfiguration and validate
+
+        ExecutorConfiguration tmp = new()
+        {
+            version = version,
+            type = (ExecutorType)type,
+            binaryVersion = binaryVersion,
+            binaryDirectory = binaryDirectory,
+            environmentVariables = environmentVariables
+        };
+
+        var validator = new ExecutorConfigurationValidator();
+        validator.ValidateAndThrow(tmp);
+
+        ExecutorConfiguration = tmp;
+
+        #endregion
     }
 
     public ExecutorController(object computedSimpleSettings,
         object executorConfigurationBase) : base(computedSimpleSettings, executorConfigurationBase)
     {
-        throw new NotImplementedException();
+        #region Check variables
+
+        var binaryDirectory = Utils.PropertyByName<string>(executorConfigurationBase, "binaryDirectory");
+        if (binaryDirectory == null)
+            throw new InvalidDataException("binaryDirectory cannot be null");
+
+        var binaryVersion = Utils.PropertyByName<string>(executorConfigurationBase, "binaryVersion");
+        if (binaryVersion == null)
+            throw new InvalidDataException("binaryVersion cannot be null");
+
+        var version = Utils.PropertyByName<string>(executorConfigurationBase, "version");
+        if (version == null) throw new InvalidDataException("version cannot be null");
+
+        ExecutorType? type = Utils.PropertyByName<ExecutorType>(executorConfigurationBase, "type");
+        if (type == null) throw new InvalidDataException("type cannot be null");
+
+        if (Utils.PropertyInfoByName(computedSimpleSettings, "port") == null)
+            throw new InvalidDataException("port is not found in computedSimpleSettings");
+        var port = Utils.PropertyByName<object>(computedSimpleSettings, "port");
+
+        int? galactusPort = Utils.PropertyByName<int>(port!, "galactus");
+        if (galactusPort == null) throw new InvalidDataException("galactusPort cannot be null");
+
+        int? brokerPort = Utils.PropertyByName<int>(port!, "broker");
+        if (brokerPort == null) throw new InvalidDataException("brokerPort cannot be null");
+
+        int? redisPort = Utils.PropertyByName<int>(port!, "redis");
+        if (redisPort == null) throw new InvalidDataException("redisPort cannot be null");
+
+        int? postgresqlPort = Utils.PropertyByName<int>(port!, "postgresql");
+        if (postgresqlPort == null) throw new InvalidDataException("postgresqlPort cannot be null");
+
+        var postgresql = Utils.PropertyByName<object>(computedSimpleSettings, "postgresql");
+        if (postgresql == null) throw new InvalidDataException("postgresql cannot be null");
+
+        var postgresqlUsername = Utils.PropertyByName<string>(postgresql, "username");
+        if (string.IsNullOrEmpty(postgresqlUsername))
+            throw new InvalidDataException("postgresqlUsername cannot be null or empty");
+
+        var postgresqlPassword = Utils.PropertyByName<string>(postgresql, "password");
+        if (string.IsNullOrEmpty(postgresqlPassword))
+            throw new InvalidDataException("postgresqlPassword cannot be null or empty");
+
+        var discordToken = Utils.PropertyByName<string>(computedSimpleSettings, "discordToken");
+        if (string.IsNullOrEmpty(discordToken)) throw new InvalidDataException("discordToken cannot be null or empty");
+
+        #endregion
+
+        #region Create ExecutorConfiguration and validate
+
+        ExecutorConfiguration executorConfiguration = new()
+        {
+            version = version,
+            type = (ExecutorType)type,
+            binaryVersion = binaryVersion,
+            binaryDirectory = binaryDirectory,
+            environmentVariables = new Dictionary<string, string>
+            {
+                { "DISCORD_BOT_TOKEN", discordToken },
+                { "HOST", $"http://localhost:{brokerPort}" },
+                { "POSTGRES_USER", postgresqlUsername },
+                { "POSTGRES_PASS", postgresqlPassword },
+                { "REDIS_ADDR", $"localhost:{redisPort}" },
+                { "GALACTUS_ADDR", $"http://localhost:{galactusPort}" },
+                { "POSTGRES_ADDR", $"localhost:{postgresqlPort}/automuteus" },
+                { "REDIS_PASS", "" },
+                { "DISABLE_LOG_FILE", "true" }
+            }
+        };
+
+        var validator = new ExecutorConfigurationValidator();
+        validator.ValidateAndThrow(executorConfiguration);
+
+        ExecutorConfiguration = executorConfiguration;
+
+        #endregion
     }
+
+    public new bool IsRunning => !_process?.HasExited ?? false;
 
     public override async Task Run(ISubject<ProgressInfo>? progress = null)
     {
-        throw new NotImplementedException();
+        if (IsRunning) return;
+
+        #region Retrieve data from PocketBase
+
+        var automuteus =
+            _pocketBaseClientApplication.Data.AutomuteusCollection.FirstOrDefault(x =>
+                x.Version == ExecutorConfiguration.binaryVersion);
+        if (automuteus == null)
+            throw new InvalidDataException(
+                $"{ExecutorConfiguration.type.ToString()} {ExecutorConfiguration.binaryVersion} is not found in the database");
+        // TODO: This doesn't work due to a bug of PocketBaseClient-csharp
+        // if (automuteus.CompatibleExecutors.All(x => x.Version != _executorConfiguration.version))
+        //     throw new InvalidDataException(
+        //         $"{_executorConfiguration.type.ToString()} {_executorConfiguration.binaryVersion} is not compatible with Executor {_executorConfiguration.version}");
+
+        #endregion
+
+        // TODO: Too slow. Need to be optimized or find a better way to do this
+        // #region Check file integrity
+        //
+        // progress?.OnNext(new ProgressInfo
+        // {
+        //     name = $"Checking file integrity of {_executorConfiguration.type.ToString()}"
+        // });
+        // using (var client = new HttpClient())
+        // {
+        //     var hashesTxt = await client.GetStringAsync(postgresql.Hashes);
+        //     var hashes = Utils.ParseHashesTxt(hashesTxt);
+        //     var invalidFiles = Utils.CompareHashes(_executorConfiguration.binaryDirectory, hashes);
+        //
+        //     if (0 < invalidFiles.Count)
+        //     {
+        //         if (string.IsNullOrEmpty(postgresql.DownloadUrl))
+        //             throw new InvalidDataException("DownloadUrl cannot be null or empty");
+        //
+        //         var binaryPath = Path.Combine(_executorConfiguration.binaryDirectory,
+        //             Path.GetFileName(postgresql.DownloadUrl));
+        //
+        //         var downloadProgress = new Progress<double>();
+        //         downloadProgress.ProgressChanged += (_, value) =>
+        //         {
+        //             progress?.OnNext(new ProgressInfo
+        //             {
+        //                 name = $"Downloading {_executorConfiguration.type.ToString()} {postgresql.Version}",
+        //                 progress = value / 2.0
+        //             });
+        //         };
+        //         await Download(postgresql.DownloadUrl, binaryPath, downloadProgress);
+        //
+        //         var extractProgress = new Progress<double>();
+        //         extractProgress.ProgressChanged += (_, value) =>
+        //         {
+        //             progress?.OnNext(new ProgressInfo
+        //             {
+        //                 name = $"Extracting {Path.GetFileName(postgresql.DownloadUrl)}",
+        //                 progress = 0.5 + value / 2.0
+        //             });
+        //         };
+        //         await ExtractZip(binaryPath, extractProgress);
+        //     }
+        // }
+        //
+        // #endregion
+
+        #region Search for currently running process and kill it
+
+        var fileName = Path.Combine(ExecutorConfiguration.binaryDirectory, "automuteus.exe");
+
+        progress?.OnNext(new ProgressInfo
+        {
+            name = $"Checking currently running {ExecutorConfiguration.type.ToString()}"
+        });
+        var wmiQueryString =
+            $"SELECT ProcessId FROM Win32_Process WHERE ExecutablePath = '{fileName.Replace(@"\", @"\\")}'";
+        using (var searcher = new ManagementObjectSearcher(wmiQueryString))
+        using (var results = searcher.Get())
+        {
+            foreach (var result in results)
+                try
+                {
+                    var processId = (uint)result["ProcessId"];
+                    var process = Process.GetProcessById((int)processId);
+
+                    process.Kill();
+                    await process.WaitForExitAsync();
+                }
+                catch
+                {
+                }
+        }
+
+        #endregion
+
+        #region Start server
+
+        _process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = Path.Combine(ExecutorConfiguration.binaryDirectory, @"automuteus.exe"),
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = ExecutorConfiguration.binaryDirectory
+            }
+        };
+        foreach (var (key, value) in ExecutorConfiguration.environmentVariables)
+            _process.StartInfo.EnvironmentVariables.Add(key, value);
+
+        _process.Exited += (_, _) => { OnStop(); };
+
+        progress?.OnNext(new ProgressInfo
+        {
+            name =
+                $"Starting {ExecutorConfiguration.type.ToString()}"
+        });
+        _process.Start();
+        progress?.OnCompleted();
+
+        #endregion
     }
 
-    public override async Task Stop(ISubject<ProgressInfo>? progress = null)
+    public override Task Stop(ISubject<ProgressInfo>? progress = null)
     {
-        throw new NotImplementedException();
+        if (!IsRunning) return Task.CompletedTask;
+
+        #region Stop server
+
+        progress?.OnNext(new ProgressInfo
+        {
+            name = $"Stopping {ExecutorConfiguration.type.ToString()}"
+        });
+        _process?.Kill();
+        _process?.WaitForExit();
+        progress?.OnCompleted();
+        return Task.CompletedTask;
+
+        #endregion
     }
 
     public override async Task Restart(ISubject<ProgressInfo>? progress = null)
     {
-        throw new NotImplementedException();
+        #region Stop server
+
+        var stopProgress = new Subject<ProgressInfo>();
+        stopProgress.Subscribe(x => progress?.OnNext(new ProgressInfo
+        {
+            name = x.name,
+            progress = x.progress / 2.0
+        }));
+        await Stop();
+        stopProgress.Dispose();
+
+        #endregion
+
+        #region Start server
+
+        var runProgress = new Subject<ProgressInfo>();
+        runProgress.Subscribe(x => progress?.OnNext(new ProgressInfo
+        {
+            name = x.name,
+            progress = 0.5 + x.progress / 2.0
+        }));
+        await Run();
+        runProgress.Dispose();
+        progress?.OnCompleted();
+
+        #endregion
     }
 
-    public override async Task Install(Dictionary<string, string> parameters,
+    public override async Task Install(
         Dictionary<ExecutorType, ExecutorControllerBase> executors, ISubject<ProgressInfo>? progress = null)
     {
-        throw new NotImplementedException();
+        #region Retrieve data from PocketBase
+
+        var automuteus =
+            _pocketBaseClientApplication.Data.AutomuteusCollection.FirstOrDefault(x =>
+                x.Version == ExecutorConfiguration.binaryVersion);
+        if (automuteus == null)
+            throw new InvalidDataException(
+                $"{ExecutorConfiguration.type.ToString()} {ExecutorConfiguration.binaryVersion} is not found in the database");
+        // TODO: This doesn't work due to a bug of PocketBaseClient-csharp
+        // if (automuteus.CompatibleExecutors.All(x => x.Version != _executorConfiguration.version))
+        //     throw new InvalidDataException(
+        //         $"{_executorConfiguration.type.ToString()} {_executorConfiguration.binaryVersion} is not compatible with Executor {_executorConfiguration.version}");
+        if (string.IsNullOrEmpty(automuteus.DownloadUrl))
+            throw new InvalidDataException("DownloadUrl cannot be null or empty");
+
+        #endregion
+
+        #region Download
+
+        if (!Directory.Exists(ExecutorConfiguration.binaryDirectory))
+            Directory.CreateDirectory(ExecutorConfiguration.binaryDirectory);
+
+        var binaryPath = Path.Combine(ExecutorConfiguration.binaryDirectory,
+            Path.GetFileName(automuteus.DownloadUrl));
+
+        var downloadProgress = new Progress<double>();
+        downloadProgress.ProgressChanged += (_, value) =>
+        {
+            progress?.OnNext(new ProgressInfo
+            {
+                name = $"Downloading {ExecutorConfiguration.type.ToString()} {automuteus.Version}",
+                progress = value / 6.0
+            });
+        };
+        await Download(automuteus.DownloadUrl, binaryPath, downloadProgress);
+
+        #endregion
+
+        #region Extract
+
+        var extractProgress = new Progress<double>();
+        extractProgress.ProgressChanged += (_, value) =>
+        {
+            progress?.OnNext(new ProgressInfo
+            {
+                name = $"Extracting {Path.GetFileName(automuteus.DownloadUrl)}",
+                progress = 1.0 / 6 + value / 6.0
+            });
+        };
+        await ExtractZip(binaryPath, extractProgress);
+
+        #endregion
+
+        #region Start PostgreSQL to initialize database
+
+        if (!executors.ContainsKey(ExecutorType.postgresql))
+            throw new InvalidDataException("PostgreSQL executor is not found");
+        var postgresqlExecutor = executors[ExecutorType.postgresql];
+        var startProgress = new Subject<ProgressInfo>();
+        startProgress.Subscribe(x =>
+        {
+            progress?.OnNext(new ProgressInfo
+            {
+                name = x.name,
+                progress = 1.0 / 6 * 2 + x.progress / 6.0
+            });
+        });
+        await postgresqlExecutor.Run(startProgress);
+        startProgress.Dispose();
+
+        #endregion
+
+        #region Create database for automuteus
+
+        var postgresqlAddress = ExecutorConfiguration.environmentVariables["POSTGRES_ADDR"];
+        var postgresqlUsername = ExecutorConfiguration.environmentVariables["POSTGRES_USER"];
+        var postgresqlPassword = ExecutorConfiguration.environmentVariables["POSTGRES_PASS"];
+
+        if (!postgresqlExecutor.ExecutorConfiguration.environmentVariables.ContainsKey("POSTGRESQL_PORT"))
+            throw new InvalidDataException(
+                "POSTGRESQL_PORT is not found in environment variables of PostgreSQL executor");
+        var postgresqlPort = postgresqlExecutor.ExecutorConfiguration.environmentVariables["POSTGRESQL_PORT"];
+
+        var createDatabaseProcess = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = Path.Combine(postgresqlExecutor.ExecutorConfiguration.binaryDirectory, @"bin\psql.exe"),
+                Arguments =
+                    $@"--no-password --command=""CREATE DATABASE automuteus"" postgresql://{postgresqlUsername}:{postgresqlPassword}@localhost:{postgresqlPort}/postgres",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = postgresqlExecutor.ExecutorConfiguration.binaryDirectory
+            }
+        };
+        progress?.OnNext(new ProgressInfo
+        {
+            name = "Creating database named \"automuteus\""
+        });
+        createDatabaseProcess.Start();
+        await createDatabaseProcess.WaitForExitAsync();
+        progress?.OnCompleted();
+
+        #endregion
+
+        #region Initialize database
+
+        var queryFile = Path.GetTempFileName();
+        var query = @"
+create table guilds
+(
+    guild_id numeric PRIMARY KEY,
+    guild_name VARCHAR(100) NOT NULL,
+    premium smallint NOT NULL,
+    tx_time_unix integer,
+    transferred_to numeric references guilds(guild_id),
+    inherits_from numeric references guilds(guild_id)
+);
+
+create table games
+(
+    game_id      bigserial PRIMARY KEY,
+    guild_id     numeric references guilds ON DELETE CASCADE, --if the guild is deleted, delete their games, too
+    connect_code CHAR(8) NOT NULL,
+    start_time   integer NOT NULL,                            --2038 problem, but I do not care
+    win_type     smallint,                                    --imposter win, crewmate win, etc
+    end_time     integer                                      --2038 problem, but I do not care
+);
+
+-- links userIDs to their hashed variants. Allows for deletion of users without deleting underlying game_event data
+create table users
+(
+    user_id numeric PRIMARY KEY,
+    opt     boolean, --opt-out to data collection
+    vote_time_unix integer --if they've ever voted for the bot on top.gg
+);
+
+create table game_events
+(
+    event_id   bigserial,
+    user_id    numeric,                                              --actually references users, but can be null, so implied reference, not literal
+    game_id    bigint   NOT NULL references games ON DELETE CASCADE, --delete all events from a game that's deleted
+    event_time integer  NOT NULL,                                    --2038 problem, but I do not care
+    event_type smallint NOT NULL,
+    payload    jsonb
+);
+
+create table users_games
+(
+    user_id numeric REFERENCES users ON DELETE CASCADE, --if a user gets deleted, delete their linked games
+    guild_id numeric REFERENCES guilds ON DELETE CASCADE, --if a guild is deleted, delete all linked games
+    game_id bigint REFERENCES games ON DELETE CASCADE, --if a game is deleted, delete all linked users_games
+    player_name VARCHAR(10) NOT NULL,
+    player_color smallint NOT NULL,
+    player_role smallint NOT NULL,
+    player_won bool NOT NULL,
+    PRIMARY KEY (user_id, game_id)
+);
+
+create index guilds_id_index ON guilds (guild_id); --query guilds by ID
+create index guilds_premium_index ON guilds (premium); --query guilds by prem status
+
+create index games_game_id_index ON games (game_id); --query games by ID
+create index games_guild_id_index ON games (guild_id); --query games by guild ID
+create index games_win_type_index on games (win_type); --query games by win type
+create index games_connect_code_index on games (connect_code); --query games by connect code
+
+create index users_user_id_index ON users (user_id); --query for user info by their ID
+
+create index users_games_user_id_index ON users_games (user_id); --query games by user ID
+create index users_games_game_id_index ON users_games (game_id); --query games by game ID
+create index users_games_guild_id_index ON users_games (guild_id); --query games by guild ID
+create index users_games_role_index ON users_games (player_role); --query games by win status
+create index users_games_won_index ON users_games (player_won); --query games by win status
+
+create index game_events_game_id_index on game_events (game_id); --query for game events by the game ID
+create index game_events_user_id_index on game_events (user_id); --query for game events by the user ID
+";
+        await File.WriteAllTextAsync(queryFile, query);
+
+        var queryProcess = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = Path.Combine(postgresqlExecutor.ExecutorConfiguration.binaryDirectory, @"bin\psql.exe"),
+                Arguments =
+                    $@"--no-password --file=""{queryFile}"" postgresql://{postgresqlUsername}:{postgresqlPassword}@{postgresqlAddress}",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = postgresqlExecutor.ExecutorConfiguration.binaryDirectory
+            }
+        };
+        progress?.OnNext(new ProgressInfo
+        {
+            name = "Initializing database"
+        });
+        queryProcess.Start();
+        await queryProcess.WaitForExitAsync();
+
+        #endregion
+
+        #region Stop PostgreSQL
+
+        var stopProgress = new Subject<ProgressInfo>();
+        stopProgress.Subscribe(x =>
+        {
+            progress?.OnNext(new ProgressInfo
+            {
+                name = x.name,
+                progress = 1.0 / 6 * 5 + x.progress / 6.0
+            });
+        });
+        await postgresqlExecutor.Stop(stopProgress);
+        stopProgress.Dispose();
+
+        progress?.OnCompleted();
+
+        #endregion
     }
 
-    public override async Task Update(Dictionary<string, string> parameters,
-        Dictionary<ExecutorType, ExecutorControllerBase> executors, ISubject<ProgressInfo>? progress = null)
-    {
-        throw new NotImplementedException();
-    }
-
-    public override async Task InstallBySimpleSettings(object simpleSettings, object executorConfigurationBase,
-        Dictionary<ExecutorType, ExecutorControllerBase> executors,
+    public override Task Update(
+        Dictionary<ExecutorType, ExecutorControllerBase> executors, object oldExecutorConfiguration,
         ISubject<ProgressInfo>? progress = null)
     {
-        throw new NotImplementedException();
+        progress?.OnCompleted();
+        return Task.CompletedTask;
     }
 
-    public override async Task UpdateBySimpleSettings(object simpleSettings, object executorConfigurationBase,
-        Dictionary<ExecutorType, ExecutorControllerBase> executors,
-        ISubject<ProgressInfo>? progress = null)
+    private Task ExtractZip(string path, IProgress<double>? progress = null)
     {
-        throw new NotImplementedException();
+        using (var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        using (var archive = new ZipArchive(fileStream, ZipArchiveMode.Read))
+        {
+            archive.ExtractToDirectory(Path.GetDirectoryName(path)!, true, progress);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task Download(string url, string path, IProgress<double>? progress = null)
+    {
+        using (var client = new HttpClient())
+        using (var fileStream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            await client.DownloadDataAsync(url, fileStream, progress);
+        }
     }
 }
