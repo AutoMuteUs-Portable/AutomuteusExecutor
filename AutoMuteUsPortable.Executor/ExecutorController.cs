@@ -568,7 +568,6 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
             await client.DownloadDataAsync(url, fileStream, progress);
         }
     }
-
     private string? GetDownloadUrl(DownloadUrl? downloadUrl)
     {
         var arch = RuntimeInformation.ProcessArchitecture;
@@ -587,4 +586,5 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
                 throw new InvalidDataException($"{arch.ToString()} is not supported");
         }
     }
+
 }
