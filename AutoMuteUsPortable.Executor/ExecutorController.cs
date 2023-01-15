@@ -2,7 +2,9 @@
 using System.IO.Compression;
 using System.Management;
 using System.Reactive.Subjects;
+using System.Runtime.InteropServices;
 using AutoMuteUsPortable.PocketBaseClient;
+using AutoMuteUsPortable.PocketBaseClient.Models;
 using AutoMuteUsPortable.Shared.Controller.Executor;
 using AutoMuteUsPortable.Shared.Entity.ExecutorConfigurationBaseNS;
 using AutoMuteUsPortable.Shared.Entity.ExecutorConfigurationNS;
@@ -330,7 +332,8 @@ public class ExecutorController : ExecutorControllerBase
         // if (automuteus.CompatibleExecutors.All(x => x.Version != _executorConfiguration.version))
         //     throw new InvalidDataException(
         //         $"{_executorConfiguration.type.ToString()} {_executorConfiguration.binaryVersion} is not compatible with Executor {_executorConfiguration.version}");
-        if (string.IsNullOrEmpty(automuteus.DownloadUrl))
+        var downloadUrl = GetDownloadUrl(automuteus.DownloadUrl);
+        if (string.IsNullOrEmpty(downloadUrl))
             throw new InvalidDataException("DownloadUrl cannot be null or empty");
 
         #endregion
@@ -341,7 +344,7 @@ public class ExecutorController : ExecutorControllerBase
             Directory.CreateDirectory(ExecutorConfiguration.binaryDirectory);
 
         var binaryPath = Path.Combine(ExecutorConfiguration.binaryDirectory,
-            Path.GetFileName(automuteus.DownloadUrl));
+            Path.GetFileName(downloadUrl));
 
         var downloadProgress = new Progress<double>();
         downloadProgress.ProgressChanged += (_, value) =>
@@ -352,7 +355,7 @@ public class ExecutorController : ExecutorControllerBase
                 progress = value / 6.0
             });
         };
-        await Download(automuteus.DownloadUrl, binaryPath, downloadProgress);
+        await Download(downloadUrl, binaryPath, downloadProgress);
 
         #endregion
 
@@ -363,7 +366,7 @@ public class ExecutorController : ExecutorControllerBase
         {
             progress?.OnNext(new ProgressInfo
             {
-                name = $"Extracting {Path.GetFileName(automuteus.DownloadUrl)}",
+                name = $"Extracting {Path.GetFileName(downloadUrl)}",
                 progress = 1.0 / 6 + value / 6.0
             });
         };
@@ -563,6 +566,25 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
         using (var fileStream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
         {
             await client.DownloadDataAsync(url, fileStream, progress);
+        }
+    }
+
+    private string? GetDownloadUrl(DownloadUrl? downloadUrl)
+    {
+        var arch = RuntimeInformation.ProcessArchitecture;
+
+        switch (arch)
+        {
+            case Architecture.Arm:
+                return downloadUrl?.WinArm;
+            case Architecture.Arm64:
+                return downloadUrl?.WinArm64;
+            case Architecture.X86:
+                return downloadUrl?.WinX86;
+            case Architecture.X64:
+                return downloadUrl?.WinX64;
+            default:
+                throw new InvalidDataException($"{arch.ToString()} is not supported");
         }
     }
 }
