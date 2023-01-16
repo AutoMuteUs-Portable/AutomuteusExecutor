@@ -1,0 +1,56 @@
+﻿name: releaser
+
+on:
+  push:
+    tags:
+      - "*"
+
+jobs:
+  releaser:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+      REPOSITORY_NAME: ${{ github.event.repository.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          
+      - name: Install xxhash
+        if: ${{ !env.ACT }}
+        shell: bash
+        run: |
+          sudo apt-fast update
+          sudo apt-fast install -y xxhash
+      
+      - name: Install xxhash (only on act)
+        if: ${{ env.ACT }}
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xxhash
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: 6.0.x
+      
+      - name: Build
+        shell: bash
+        run: dotnet publish -c Release -p:UseAppHost=false -p:DebugType=None -p:DebugSymbols=false -o ../build/
+      
+      - name: Compress to zip
+        shell: bash
+        run: zip -r ../$REPOSITORY_NAME.zip ../build/*
+      
+      - name: Calculate checksum
+        shell: bash
+        run: find ../build/ -type f -print0 | xargs -0 xxhsum -H3 -- | sed "s/XXH3 (\.\.\/build\/\(.\+\)) = \([a-z0-9]\+\)/\2 \1/" > ../checksum.txt
+        
+      - name: Create release
+        if: ${{ !env.ACT }}
+        shell: bash
+        run: gh release create $TAG ../$REPOSITORY_NAME.zip ../checksum.txt --title $TAG
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

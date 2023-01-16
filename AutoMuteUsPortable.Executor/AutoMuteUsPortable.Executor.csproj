@@ -6,13 +6,33 @@
         <Nullable>enable</Nullable>
     </PropertyGroup>
 
+    <PropertyGroup>
+        <Description>ExecutorController for AutoMuteUs Portable. This is responsible to run, stop, restart and install server, also update from the previous version. This will be built as dll and dynamically loaded into AutoMuteUs Portable.</Description>
+        <Copyright>mtaku3</Copyright>
+        <NeutralLanguage>en-US</NeutralLanguage>
+        <Authors>mtaku3</Authors>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageProjectUrl>https://github.com/AutoMuteUs-Portable/AutomuteusExecutor</PackageProjectUrl>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+        <IsPackable>true</IsPackable>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <MinVerIgnoreHeight>true</MinVerIgnoreHeight>
+    </PropertyGroup>
+
     <ItemGroup>
-      <ProjectReference Include="..\AutoMuteUsPortable\AutoMuteUsPortable.PocketBaseClient\AutoMuteUsPortable.PocketBaseClient.csproj" />
-      <ProjectReference Include="..\AutoMuteUsPortable\AutoMuteUsPortable.Shared\AutoMuteUsPortable.Shared.csproj" />
+        <ProjectReference Include="..\AutoMuteUsPortable\AutoMuteUsPortable.PocketBaseClient\AutoMuteUsPortable.PocketBaseClient.csproj"/>
+        <ProjectReference Include="..\AutoMuteUsPortable\AutoMuteUsPortable.Shared\AutoMuteUsPortable.Shared.csproj"/>
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="Microsoft.Windows.Compatibility" Version="7.0.0" />
+        <PackageReference Include="Microsoft.Windows.Compatibility" Version="7.0.0"/>
+        <PackageReference Include="MinVer" Version="4.3.0-beta.1">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
     </ItemGroup>
 
 </Project>
