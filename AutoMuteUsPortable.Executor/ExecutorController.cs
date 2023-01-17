@@ -1,16 +1,12 @@
 ﻿using System.Diagnostics;
-using System.IO.Compression;
 using System.Management;
 using System.Reactive.Subjects;
-using System.Runtime.InteropServices;
 using AutoMuteUsPortable.PocketBaseClient;
-using AutoMuteUsPortable.PocketBaseClient.Models;
 using AutoMuteUsPortable.Shared.Controller.Executor;
 using AutoMuteUsPortable.Shared.Entity.ExecutorConfigurationBaseNS;
 using AutoMuteUsPortable.Shared.Entity.ExecutorConfigurationNS;
 using AutoMuteUsPortable.Shared.Entity.ProgressInfo;
 using AutoMuteUsPortable.Shared.Utility;
-using AutoMuteUsPortable.Shared.Utility.Dotnet.ZipFileProgressExtensionsNS;
 using FluentValidation;
 
 namespace AutoMuteUsPortable.Executor;
@@ -195,7 +191,7 @@ public class ExecutorController : ExecutorControllerBase
         //                 progress = value / 2.0
         //             });
         //         };
-        //         await Download(postgresql.DownloadUrl, binaryPath, downloadProgress);
+        //         await Utils.DownloadAsync(postgresql.DownloadUrl, binaryPath, downloadProgress);
         //
         //         var extractProgress = new Progress<double>();
         //         extractProgress.ProgressChanged += (_, value) =>
@@ -206,7 +202,7 @@ public class ExecutorController : ExecutorControllerBase
         //                 progress = 0.5 + value / 2.0
         //             });
         //         };
-        //         await ExtractZip(binaryPath, extractProgress);
+        //         Utils.ExtractZip(binaryPath, extractProgress);
         //     }
         // }
         //
@@ -332,7 +328,8 @@ public class ExecutorController : ExecutorControllerBase
         // if (automuteus.CompatibleExecutors.All(x => x.Version != _executorConfiguration.version))
         //     throw new InvalidDataException(
         //         $"{_executorConfiguration.type.ToString()} {_executorConfiguration.binaryVersion} is not compatible with Executor {_executorConfiguration.version}");
-        var downloadUrl = GetDownloadUrl(automuteus.DownloadUrl);
+        string? downloadUrl = null;
+        if (automuteus.DownloadUrl != null) downloadUrl = Utils.GetDownloadUrl(automuteus.DownloadUrl);
         if (string.IsNullOrEmpty(downloadUrl))
             throw new InvalidDataException("DownloadUrl cannot be null or empty");
 
@@ -355,7 +352,7 @@ public class ExecutorController : ExecutorControllerBase
                 progress = value / 6.0
             });
         };
-        await Download(downloadUrl, binaryPath, downloadProgress);
+        await Utils.DownloadAsync(downloadUrl, binaryPath, downloadProgress);
 
         #endregion
 
@@ -370,7 +367,7 @@ public class ExecutorController : ExecutorControllerBase
                 progress = 1.0 / 6 + value / 6.0
             });
         };
-        await ExtractZip(binaryPath, extractProgress);
+        Utils.ExtractZip(binaryPath, extractProgress);
 
         #endregion
 
@@ -548,43 +545,4 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
         progress?.OnCompleted();
         return Task.CompletedTask;
     }
-
-    private Task ExtractZip(string path, IProgress<double>? progress = null)
-    {
-        using (var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
-        using (var archive = new ZipArchive(fileStream, ZipArchiveMode.Read))
-        {
-            archive.ExtractToDirectory(Path.GetDirectoryName(path)!, true, progress);
-        }
-
-        return Task.CompletedTask;
-    }
-
-    private async Task Download(string url, string path, IProgress<double>? progress = null)
-    {
-        using (var client = new HttpClient())
-        using (var fileStream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
-        {
-            await client.DownloadDataAsync(url, fileStream, progress);
-        }
-    }
-    private string? GetDownloadUrl(DownloadUrl? downloadUrl)
-    {
-        var arch = RuntimeInformation.ProcessArchitecture;
-
-        switch (arch)
-        {
-            case Architecture.Arm:
-                return downloadUrl?.WinArm;
-            case Architecture.Arm64:
-                return downloadUrl?.WinArm64;
-            case Architecture.X86:
-                return downloadUrl?.WinX86;
-            case Architecture.X64:
-                return downloadUrl?.WinX64;
-            default:
-                throw new InvalidDataException($"{arch.ToString()} is not supported");
-        }
-    }
-
 }
