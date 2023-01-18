@@ -154,59 +154,59 @@ public class ExecutorController : ExecutorControllerBase
         if (automuteus == null)
             throw new InvalidDataException(
                 $"{ExecutorConfiguration.type.ToString()} {ExecutorConfiguration.binaryVersion} is not found in the database");
-        // TODO: This doesn't work due to a bug of PocketBaseClient-csharp
-        // if (automuteus.CompatibleExecutors.All(x => x.Version != _executorConfiguration.version))
-        //     throw new InvalidDataException(
-        //         $"{_executorConfiguration.type.ToString()} {_executorConfiguration.binaryVersion} is not compatible with Executor {_executorConfiguration.version}");
+        if (automuteus.CompatibleExecutors.All(x => x.Version != ExecutorConfiguration.version))
+            throw new InvalidDataException(
+                $"{ExecutorConfiguration.type} {ExecutorConfiguration.binaryVersion} is not compatible with Executor {ExecutorConfiguration.version}");
 
         #endregion
 
-        // TODO: Too slow. Need to be optimized or find a better way to do this
-        // #region Check file integrity
-        //
-        // progress?.OnNext(new ProgressInfo
-        // {
-        //     name = $"Checking file integrity of {_executorConfiguration.type.ToString()}"
-        // });
-        // using (var client = new HttpClient())
-        // {
-        //     var hashesTxt = await client.GetStringAsync(postgresql.Hashes);
-        //     var hashes = Utils.ParseHashesTxt(hashesTxt);
-        //     var invalidFiles = Utils.CompareHashes(_executorConfiguration.binaryDirectory, hashes);
-        //
-        //     if (0 < invalidFiles.Count)
-        //     {
-        //         if (string.IsNullOrEmpty(postgresql.DownloadUrl))
-        //             throw new InvalidDataException("DownloadUrl cannot be null or empty");
-        //
-        //         var binaryPath = Path.Combine(_executorConfiguration.binaryDirectory,
-        //             Path.GetFileName(postgresql.DownloadUrl));
-        //
-        //         var downloadProgress = new Progress<double>();
-        //         downloadProgress.ProgressChanged += (_, value) =>
-        //         {
-        //             progress?.OnNext(new ProgressInfo
-        //             {
-        //                 name = $"Downloading {_executorConfiguration.type.ToString()} {postgresql.Version}",
-        //                 progress = value / 2.0
-        //             });
-        //         };
-        //         await Utils.DownloadAsync(postgresql.DownloadUrl, binaryPath, downloadProgress);
-        //
-        //         var extractProgress = new Progress<double>();
-        //         extractProgress.ProgressChanged += (_, value) =>
-        //         {
-        //             progress?.OnNext(new ProgressInfo
-        //             {
-        //                 name = $"Extracting {Path.GetFileName(postgresql.DownloadUrl)}",
-        //                 progress = 0.5 + value / 2.0
-        //             });
-        //         };
-        //         Utils.ExtractZip(binaryPath, extractProgress);
-        //     }
-        // }
-        //
-        // #endregion
+        #region Check file integrity
+
+        progress?.OnNext(new ProgressInfo
+        {
+            name = $"Checking file integrity of {ExecutorConfiguration.type}"
+        });
+        using (var client = new HttpClient())
+        {
+            var checksumUrl = Utils.GetChecksum(automuteus.Checksum);
+            var res = await client.GetStringAsync(checksumUrl);
+            var checksum = Utils.ParseChecksumText(res);
+            var invalidFiles = Utils.CompareChecksum(ExecutorConfiguration.binaryDirectory, checksum);
+
+            if (0 < invalidFiles.Count)
+            {
+                var downloadUrl = Utils.GetDownloadUrl(automuteus.DownloadUrl);
+                if (string.IsNullOrEmpty(downloadUrl))
+                    throw new InvalidDataException("DownloadUrl cannot be null or empty");
+
+                var binaryPath = Path.Combine(ExecutorConfiguration.binaryDirectory,
+                    Path.GetFileName(downloadUrl));
+
+                var downloadProgress = new Progress<double>();
+                downloadProgress.ProgressChanged += (_, value) =>
+                {
+                    progress?.OnNext(new ProgressInfo
+                    {
+                        name = $"Downloading {ExecutorConfiguration.type} {automuteus.Version}",
+                        progress = value / 2.0
+                    });
+                };
+                await Utils.DownloadAsync(downloadUrl, binaryPath, downloadProgress);
+
+                var extractProgress = new Progress<double>();
+                extractProgress.ProgressChanged += (_, value) =>
+                {
+                    progress?.OnNext(new ProgressInfo
+                    {
+                        name = $"Extracting {Path.GetFileName(downloadUrl)}",
+                        progress = 0.5 + value / 2.0
+                    });
+                };
+                Utils.ExtractZip(binaryPath, extractProgress);
+            }
+        }
+
+        #endregion
 
         #region Search for currently running process and kill it
 
@@ -324,10 +324,9 @@ public class ExecutorController : ExecutorControllerBase
         if (automuteus == null)
             throw new InvalidDataException(
                 $"{ExecutorConfiguration.type.ToString()} {ExecutorConfiguration.binaryVersion} is not found in the database");
-        // TODO: This doesn't work due to a bug of PocketBaseClient-csharp
-        // if (automuteus.CompatibleExecutors.All(x => x.Version != _executorConfiguration.version))
-        //     throw new InvalidDataException(
-        //         $"{_executorConfiguration.type.ToString()} {_executorConfiguration.binaryVersion} is not compatible with Executor {_executorConfiguration.version}");
+        if (automuteus.CompatibleExecutors.All(x => x.Version != ExecutorConfiguration.version))
+            throw new InvalidDataException(
+                $"{ExecutorConfiguration.type.ToString()} {ExecutorConfiguration.binaryVersion} is not compatible with Executor {ExecutorConfiguration.version}");
         string? downloadUrl = null;
         if (automuteus.DownloadUrl != null) downloadUrl = Utils.GetDownloadUrl(automuteus.DownloadUrl);
         if (string.IsNullOrEmpty(downloadUrl))
