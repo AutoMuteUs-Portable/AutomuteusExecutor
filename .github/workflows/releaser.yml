@@ -42,7 +42,8 @@ jobs:
       
       - name: Compress to zip
         shell: bash
-        run: zip -r ../$REPOSITORY_NAME.zip ../build/*
+        working-directory: ../build/
+        run: zip -r ../$REPOSITORY_NAME.zip *
       
       - name: Calculate checksum
         shell: bash
