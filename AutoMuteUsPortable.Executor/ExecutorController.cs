@@ -269,10 +269,10 @@ public class ExecutorController : ExecutorControllerBase
                     var process = Process.GetProcessById((int)processId);
 
                     process.Kill();
-                    await process.WaitForExitAsync();
                 }
                 catch
                 {
+                    // ignored
                 }
         }
 
@@ -330,7 +330,7 @@ public class ExecutorController : ExecutorControllerBase
             name = string.Format("{0}を終了しています", ExecutorConfiguration.type),
             IsIndeterminate = true
         });
-        _process?.Kill();
+        _process?.GracefullyClose();
         _process?.WaitForExit();
         return Task.CompletedTask;
 
