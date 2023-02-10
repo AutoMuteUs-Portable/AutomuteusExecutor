@@ -16,14 +16,14 @@ public class ExecutorController : ExecutorControllerBase
     private readonly PocketBaseClientApplication _pocketBaseClientApplication = new();
     private Process? _process;
     private StreamWriter _outputStreamWriter;
-    private StreamWriter _errorstreamWriter;
+    private StreamWriter _errorStreamWriter;
 
     public ExecutorController(object executorConfiguration) : base(executorConfiguration)
     {
         #region Initialize stream writer
 
         _outputStreamWriter = new StreamWriter(OutputStream);
-        _errorstreamWriter = new StreamWriter(ErrorStream);
+        _errorStreamWriter = new StreamWriter(ErrorStream);
 
         #endregion
 
@@ -74,7 +74,7 @@ public class ExecutorController : ExecutorControllerBase
         #region Initialize stream writer
 
         _outputStreamWriter = new StreamWriter(OutputStream);
-        _errorstreamWriter = new StreamWriter(ErrorStream);
+        _errorStreamWriter = new StreamWriter(ErrorStream);
 
         #endregion
 
@@ -630,6 +630,6 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
 
     private void ProcessOnErrorDataReceived(object sender, DataReceivedEventArgs e)
     {
-        _errorstreamWriter.Write(e.Data);
+        _errorStreamWriter.Write(e.Data);
     }
 }
