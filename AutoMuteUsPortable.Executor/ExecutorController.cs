@@ -140,8 +140,6 @@ public class ExecutorController : ExecutorControllerBase
         #endregion
     }
 
-    public new bool IsRunning => !_process?.HasExited ?? false;
-
     public override async Task Run(ISubject<ProgressInfo>? progress = null)
     {
         if (IsRunning) return;
@@ -281,6 +279,7 @@ public class ExecutorController : ExecutorControllerBase
         foreach (var (key, value) in ExecutorConfiguration.environmentVariables)
             _process.StartInfo.EnvironmentVariables.Add(key, value);
 
+        IsRunning = true;
         _process.Exited += (_, _) => { OnStop(); };
 
         var startProgress = taskProgress?.GetSubjectProgress();
@@ -573,5 +572,11 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
         ISubject<ProgressInfo>? progress = null)
     {
         return Task.CompletedTask;
+    }
+
+    protected override void OnStop()
+    {
+        base.OnStop();
+        IsRunning = false;
     }
 }
