@@ -15,9 +15,18 @@ public class ExecutorController : ExecutorControllerBase
 {
     private readonly PocketBaseClientApplication _pocketBaseClientApplication = new();
     private Process? _process;
+    private StreamWriter _outputStreamWriter;
+    private StreamWriter _errorstreamWriter;
 
     public ExecutorController(object executorConfiguration) : base(executorConfiguration)
     {
+        #region Initialize stream writer
+
+        _outputStreamWriter = new StreamWriter(OutputStream);
+        _errorstreamWriter = new StreamWriter(ErrorStream);
+
+        #endregion
+
         #region Check variables
 
         var binaryDirectory = Utils.PropertyByName<string>(executorConfiguration, "binaryDirectory");
@@ -62,6 +71,13 @@ public class ExecutorController : ExecutorControllerBase
     public ExecutorController(object computedSimpleSettings,
         object executorConfigurationBase) : base(computedSimpleSettings, executorConfigurationBase)
     {
+        #region Initialize stream writer
+
+        _outputStreamWriter = new StreamWriter(OutputStream);
+        _errorstreamWriter = new StreamWriter(ErrorStream);
+
+        #endregion
+
         #region Check variables
 
         var binaryDirectory = Utils.PropertyByName<string>(executorConfigurationBase, "binaryDirectory");
@@ -273,6 +289,8 @@ public class ExecutorController : ExecutorControllerBase
                 FileName = Path.Combine(ExecutorConfiguration.binaryDirectory, @"automuteus.exe"),
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
                 WorkingDirectory = ExecutorConfiguration.binaryDirectory
             }
         };
@@ -289,6 +307,13 @@ public class ExecutorController : ExecutorControllerBase
             IsIndeterminate = true
         });
         _process.Start();
+
+        _process.OutputDataReceived += ProcessOnOutputDataReceived;
+        _process.BeginOutputReadLine();
+
+        _process.ErrorDataReceived += ProcessOnErrorDataReceived;
+        _process.BeginErrorReadLine();
+
         taskProgress?.NextTask();
 
         #endregion
@@ -444,6 +469,8 @@ public class ExecutorController : ExecutorControllerBase
                     $@"--no-password --command=""CREATE DATABASE automuteus"" postgresql://{postgresqlUsername}:{postgresqlPassword}@localhost:{postgresqlPort}/postgres",
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
                 WorkingDirectory = postgresqlExecutor.ExecutorConfiguration.binaryDirectory
             }
         };
@@ -454,6 +481,13 @@ public class ExecutorController : ExecutorControllerBase
             IsIndeterminate = true
         });
         createDatabaseProcess.Start();
+
+        createDatabaseProcess.OutputDataReceived += ProcessOnOutputDataReceived;
+        createDatabaseProcess.BeginOutputReadLine();
+
+        createDatabaseProcess.ErrorDataReceived += ProcessOnErrorDataReceived;
+        createDatabaseProcess.BeginErrorReadLine();
+
         await createDatabaseProcess.WaitForExitAsync();
         taskProgress?.NextTask();
 
@@ -543,6 +577,8 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
                     $@"--no-password --file=""{queryFile}"" postgresql://{postgresqlUsername}:{postgresqlPassword}@{postgresqlAddress}",
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
                 WorkingDirectory = postgresqlExecutor.ExecutorConfiguration.binaryDirectory
             }
         };
@@ -553,6 +589,13 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
             IsIndeterminate = true
         });
         queryProcess.Start();
+
+        queryProcess.OutputDataReceived += ProcessOnOutputDataReceived;
+        queryProcess.BeginOutputReadLine();
+
+        queryProcess.ErrorDataReceived += ProcessOnErrorDataReceived;
+        queryProcess.BeginErrorReadLine();
+
         await queryProcess.WaitForExitAsync();
         taskProgress?.NextTask();
 
@@ -578,5 +621,15 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
     {
         base.OnStop();
         IsRunning = false;
+    }
+
+    private void ProcessOnOutputDataReceived(object sender, DataReceivedEventArgs e)
+    {
+        _outputStreamWriter.Write(e.Data);
+    }
+
+    private void ProcessOnErrorDataReceived(object sender, DataReceivedEventArgs e)
+    {
+        _errorstreamWriter.Write(e.Data);
     }
 }
