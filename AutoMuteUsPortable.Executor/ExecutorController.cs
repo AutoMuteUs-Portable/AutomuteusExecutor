@@ -308,11 +308,13 @@ public class ExecutorController : ExecutorControllerBase
                 WorkingDirectory = ExecutorConfiguration.binaryDirectory
             }
         };
+        _process.OutputDataReceived += ProcessOnOutputDataReceived;
+        _process.ErrorDataReceived += ProcessOnErrorDataReceived;
+        _process.Exited += (_, _) => { OnStop(); };
+        _process.EnableRaisingEvents = true;
+
         foreach (var (key, value) in ExecutorConfiguration.environmentVariables)
             _process.StartInfo.EnvironmentVariables.Add(key, value);
-
-        OnStart();
-        _process.Exited += (_, _) => { OnStop(); };
 
         var startProgress = taskProgress?.GetSubjectProgress();
         startProgress?.OnNext(new ProgressInfo
@@ -320,12 +322,10 @@ public class ExecutorController : ExecutorControllerBase
             name = string.Format("{0}を起動しています", ExecutorConfiguration.type),
             IsIndeterminate = true
         });
+        OnStart();
         _process.Start();
 
-        _process.OutputDataReceived += ProcessOnOutputDataReceived;
         _process.BeginOutputReadLine();
-
-        _process.ErrorDataReceived += ProcessOnErrorDataReceived;
         _process.BeginErrorReadLine();
 
         taskProgress?.NextTask();
@@ -344,7 +344,7 @@ public class ExecutorController : ExecutorControllerBase
             name = string.Format("{0}を終了しています", ExecutorConfiguration.type),
             IsIndeterminate = true
         });
-        _process?.GracefullyClose();
+        _process?.Kill();
         _process?.WaitForExit();
         return Task.CompletedTask;
 
