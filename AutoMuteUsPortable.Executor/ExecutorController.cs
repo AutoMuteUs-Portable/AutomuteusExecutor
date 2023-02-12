@@ -7,6 +7,8 @@ using AutoMuteUsPortable.Shared.Entity.ExecutorConfigurationBaseNS;
 using AutoMuteUsPortable.Shared.Entity.ExecutorConfigurationNS;
 using AutoMuteUsPortable.Shared.Entity.ProgressInfo;
 using AutoMuteUsPortable.Shared.Utility;
+using CliWrap;
+using CliWrap.EventStream;
 using FluentValidation;
 
 namespace AutoMuteUsPortable.Executor;
@@ -14,9 +16,10 @@ namespace AutoMuteUsPortable.Executor;
 public class ExecutorController : ExecutorControllerBase
 {
     private readonly PocketBaseClientApplication _pocketBaseClientApplication = new();
-    private Process? _process;
-    private StreamWriter _outputStreamWriter;
-    private StreamWriter _errorStreamWriter;
+    private readonly StreamWriter _outputStreamWriter;
+    private readonly StreamWriter _errorStreamWriter;
+    private CancellationTokenSource _forcefulCTS = new();
+    private CancellationTokenSource _gracefulCTS = new();
 
     public ExecutorController(object executorConfiguration) : base(executorConfiguration)
     {
@@ -288,37 +291,33 @@ public class ExecutorController : ExecutorControllerBase
 
         #region Start server
 
-        _process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = Path.Combine(ExecutorConfiguration.binaryDirectory, @"automuteus.exe"),
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                WorkingDirectory = ExecutorConfiguration.binaryDirectory
-            }
-        };
-        _process.OutputDataReceived += ProcessOnOutputDataReceived;
-        _process.ErrorDataReceived += ProcessOnErrorDataReceived;
-        _process.Exited += (_, _) => { OnStop(); };
-        _process.EnableRaisingEvents = true;
-
-        foreach (var (key, value) in ExecutorConfiguration.environmentVariables)
-            _process.StartInfo.EnvironmentVariables.Add(key, value);
-
         var startProgress = taskProgress?.GetSubjectProgress();
         startProgress?.OnNext(new ProgressInfo
         {
             name = string.Format("{0}を起動しています", ExecutorConfiguration.type),
             IsIndeterminate = true
         });
-        OnStart();
-        _process.Start();
+        var cmd = Cli.Wrap(Path.Combine(ExecutorConfiguration.binaryDirectory, @"automuteus.exe"))
+            .WithEnvironmentVariables(ExecutorConfiguration.environmentVariables!)
+            .WithWorkingDirectory(ExecutorConfiguration.binaryDirectory)
+            .WithStandardOutputPipe(PipeTarget.ToDelegate(ProcessStandardOutput))
+            .WithStandardErrorPipe(PipeTarget.ToDelegate(ProcessStandardError));
 
-        _process.BeginOutputReadLine();
-        _process.BeginErrorReadLine();
+        _forcefulCTS = new CancellationTokenSource();
+        _gracefulCTS = new CancellationTokenSource();
+        cmd.Observe(Console.OutputEncoding, Console.OutputEncoding, _forcefulCTS.Token, _gracefulCTS.Token).Subscribe(
+            e =>
+            {
+                switch (e)
+                {
+                    case StartedCommandEvent started:
+                        OnStart();
+                        break;
+                    case ExitedCommandEvent exited:
+                        OnStop();
+                        break;
+                }
+            });
 
         taskProgress?.NextTask();
 
@@ -336,8 +335,7 @@ public class ExecutorController : ExecutorControllerBase
             name = string.Format("{0}を終了しています", ExecutorConfiguration.type),
             IsIndeterminate = true
         });
-        _process?.Kill();
-        _process?.WaitForExit();
+        _gracefulCTS.Cancel();
         return Task.CompletedTask;
 
         #endregion
@@ -464,35 +462,20 @@ public class ExecutorController : ExecutorControllerBase
                 "POSTGRESQL_PORT is not found in environment variables of PostgreSQL executor");
         var postgresqlPort = postgresqlExecutor.ExecutorConfiguration.environmentVariables["POSTGRESQL_PORT"];
 
-        var createDatabaseProcess = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = Path.Combine(postgresqlExecutor.ExecutorConfiguration.binaryDirectory, @"bin\psql.exe"),
-                Arguments =
-                    $@"--no-password --command=""CREATE DATABASE automuteus"" postgresql://{postgresqlUsername}:{postgresqlPassword}@localhost:{postgresqlPort}/postgres",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                WorkingDirectory = postgresqlExecutor.ExecutorConfiguration.binaryDirectory
-            }
-        };
         var createDatabaseProgress = taskProgress?.GetSubjectProgress();
         createDatabaseProgress?.OnNext(new ProgressInfo
         {
             name = "データベースを作成しています",
             IsIndeterminate = true
         });
-        createDatabaseProcess.Start();
+        await Cli.Wrap(Path.Combine(postgresqlExecutor.ExecutorConfiguration.binaryDirectory, @"bin\psql.exe"))
+            .WithArguments(
+                $@"--no-password --command=""CREATE DATABASE automuteus"" postgresql://{postgresqlUsername}:{postgresqlPassword}@localhost:{postgresqlPort}/postgres")
+            .WithWorkingDirectory(ExecutorConfiguration.binaryDirectory)
+            .WithStandardOutputPipe(PipeTarget.ToDelegate(ProcessStandardOutput))
+            .WithStandardErrorPipe(PipeTarget.ToDelegate(ProcessStandardError))
+            .ExecuteAsync();
 
-        createDatabaseProcess.OutputDataReceived += ProcessOnOutputDataReceived;
-        createDatabaseProcess.BeginOutputReadLine();
-
-        createDatabaseProcess.ErrorDataReceived += ProcessOnErrorDataReceived;
-        createDatabaseProcess.BeginErrorReadLine();
-
-        await createDatabaseProcess.WaitForExitAsync();
         taskProgress?.NextTask();
 
         #endregion
@@ -572,35 +555,21 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
 ";
         await File.WriteAllTextAsync(queryFile, query);
 
-        var queryProcess = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = Path.Combine(postgresqlExecutor.ExecutorConfiguration.binaryDirectory, @"bin\psql.exe"),
-                Arguments =
-                    $@"--no-password --file=""{queryFile}"" postgresql://{postgresqlUsername}:{postgresqlPassword}@{postgresqlAddress}",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                WorkingDirectory = postgresqlExecutor.ExecutorConfiguration.binaryDirectory
-            }
-        };
         var initializeProgress = taskProgress?.GetSubjectProgress();
         initializeProgress?.OnNext(new ProgressInfo
         {
             name = "データベースを初期化しています",
             IsIndeterminate = true
         });
-        queryProcess.Start();
 
-        queryProcess.OutputDataReceived += ProcessOnOutputDataReceived;
-        queryProcess.BeginOutputReadLine();
+        await Cli.Wrap(Path.Combine(postgresqlExecutor.ExecutorConfiguration.binaryDirectory, @"bin\psql.exe"))
+            .WithArguments(
+                $@"--no-password --file=""{queryFile}"" postgresql://{postgresqlUsername}:{postgresqlPassword}@{postgresqlAddress}")
+            .WithWorkingDirectory(ExecutorConfiguration.binaryDirectory)
+            .WithStandardOutputPipe(PipeTarget.ToDelegate(ProcessStandardOutput))
+            .WithStandardErrorPipe(PipeTarget.ToDelegate(ProcessStandardError))
+            .ExecuteAsync();
 
-        queryProcess.ErrorDataReceived += ProcessOnErrorDataReceived;
-        queryProcess.BeginErrorReadLine();
-
-        await queryProcess.WaitForExitAsync();
         taskProgress?.NextTask();
 
         #endregion
@@ -621,13 +590,13 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
         return Task.CompletedTask;
     }
 
-    private void ProcessOnOutputDataReceived(object sender, DataReceivedEventArgs e)
+    private void ProcessStandardOutput(string text)
     {
-        _outputStreamWriter.Write(e.Data);
+        _outputStreamWriter.Write(text);
     }
 
-    private void ProcessOnErrorDataReceived(object sender, DataReceivedEventArgs e)
+    private void ProcessStandardError(string text)
     {
-        _errorStreamWriter.Write(e.Data);
+        _errorStreamWriter.Write(text);
     }
 }
