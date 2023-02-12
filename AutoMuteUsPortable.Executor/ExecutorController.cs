@@ -305,19 +305,32 @@ public class ExecutorController : ExecutorControllerBase
 
         _forcefulCTS = new CancellationTokenSource();
         _gracefulCTS = new CancellationTokenSource();
-        cmd.Observe(Console.OutputEncoding, Console.OutputEncoding, _forcefulCTS.Token, _gracefulCTS.Token).Subscribe(
-            e =>
-            {
-                switch (e)
-                {
-                    case StartedCommandEvent started:
-                        OnStart();
-                        break;
-                    case ExitedCommandEvent exited:
-                        OnStop();
-                        break;
-                }
-            });
+        try
+        {
+            cmd.Observe(Console.OutputEncoding, Console.OutputEncoding, _forcefulCTS.Token, _gracefulCTS.Token)
+                .Subscribe(
+                    e =>
+                    {
+                        switch (e)
+                        {
+                            case StartedCommandEvent started:
+                                OnStart();
+                                break;
+                            case ExitedCommandEvent exited:
+                                OnStop();
+                                break;
+                        }
+                    });
+        }
+        catch (OperationCanceledException ex)
+        {
+            // ignored
+        }
+        catch
+        {
+            // ignored
+            // TODO: handle exception more elegantly
+        }
 
         taskProgress?.NextTask();
 
