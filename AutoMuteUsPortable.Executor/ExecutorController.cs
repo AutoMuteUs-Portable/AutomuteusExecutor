@@ -143,7 +143,8 @@ public class ExecutorController : ExecutorControllerBase
         #endregion
     }
 
-    public override async Task Run(ISubject<ProgressInfo>? progress = null)
+    public override async Task Run(ISubject<ProgressInfo>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         if (IsRunning) return;
 
@@ -197,7 +198,7 @@ public class ExecutorController : ExecutorControllerBase
         {
             using (var client = new HttpClient())
             {
-                var res = await client.GetStringAsync(checksumUrl);
+                var res = await client.GetStringAsync(checksumUrl, cancellationToken);
                 var checksum = Utils.ParseChecksumText(res);
                 var checksumProgress = taskProgress?.GetSubjectProgress();
                 checksumProgress?.OnNext(new ProgressInfo
@@ -205,7 +206,8 @@ public class ExecutorController : ExecutorControllerBase
                     name = string.Format("{0}のファイルの整合性を確認しています", ExecutorConfiguration.type),
                     IsIndeterminate = true
                 });
-                var invalidFiles = Utils.CompareChecksum(ExecutorConfiguration.binaryDirectory, checksum);
+                var invalidFiles =
+                    Utils.CompareChecksum(ExecutorConfiguration.binaryDirectory, checksum, cancellationToken);
                 taskProgress?.NextTask();
 
                 if (0 < invalidFiles.Count)
@@ -221,14 +223,14 @@ public class ExecutorController : ExecutorControllerBase
                     if (taskProgress?.ActiveLeafTask != null)
                         taskProgress.ActiveLeafTask.Name =
                             string.Format("{0}の実行に必要なファイルをダウンロードしています", ExecutorConfiguration.type);
-                    await Utils.DownloadAsync(downloadUrl, binaryPath, downloadProgress);
+                    await Utils.DownloadAsync(downloadUrl, binaryPath, downloadProgress, cancellationToken);
                     taskProgress?.NextTask();
 
                     var extractProgress = taskProgress?.GetProgress();
                     if (taskProgress?.ActiveLeafTask != null)
                         taskProgress.ActiveLeafTask.Name =
                             string.Format("{0}の実行に必要なファイルを解凍しています", ExecutorConfiguration.type);
-                    Utils.ExtractZip(binaryPath, extractProgress);
+                    Utils.ExtractZip(binaryPath, extractProgress, cancellationToken);
                     taskProgress?.NextTask();
                 }
                 else
@@ -256,6 +258,7 @@ public class ExecutorController : ExecutorControllerBase
         using (var results = searcher.Get())
         {
             foreach (var result in results)
+            {
                 try
                 {
                     var processId = (uint)result["ProcessId"];
@@ -267,6 +270,9 @@ public class ExecutorController : ExecutorControllerBase
                 {
                     // ignored
                 }
+
+                cancellationToken.ThrowIfCancellationRequested();
+            }
         }
 
         taskProgress?.NextTask();
@@ -288,10 +294,11 @@ public class ExecutorController : ExecutorControllerBase
             .WithStandardErrorPipe(PipeTarget.ToDelegate(ProcessStandardError));
 
         _forcefulCTS = new CancellationTokenSource();
+        var linkedForcefulCTS = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _forcefulCTS.Token);
         _gracefulCTS = new CancellationTokenSource();
         try
         {
-            cmd.Observe(Console.OutputEncoding, Console.OutputEncoding, _forcefulCTS.Token, _gracefulCTS.Token)
+            cmd.Observe(Console.OutputEncoding, Console.OutputEncoding, linkedForcefulCTS.Token, _gracefulCTS.Token)
                 .Subscribe(
                     e =>
                     {
@@ -321,7 +328,8 @@ public class ExecutorController : ExecutorControllerBase
         #endregion
     }
 
-    public override Task Stop(ISubject<ProgressInfo>? progress = null)
+    public override Task GracefullyStop(ISubject<ProgressInfo>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         if (!IsRunning) return Task.CompletedTask;
 
@@ -336,13 +344,38 @@ public class ExecutorController : ExecutorControllerBase
             IsIndeterminate = true
         });
         _gracefulCTS.Cancel();
-        ewh.WaitOne();
+        if (WaitHandle.WaitAny(new[] { ewh, cancellationToken.WaitHandle }) != 0)
+            cancellationToken.ThrowIfCancellationRequested();
+
         return Task.CompletedTask;
 
         #endregion
     }
 
-    public override async Task Restart(ISubject<ProgressInfo>? progress = null)
+    public override Task ForciblyStop(ISubject<ProgressInfo>? progress = null)
+    {
+        if (!IsRunning) return Task.CompletedTask;
+
+        #region Stop server
+
+        var ewh = new AutoResetEvent(false);
+        Stopped += (sender, args) => ewh.Set();
+
+        progress?.OnNext(new ProgressInfo
+        {
+            name = string.Format("{0}を終了しています", ExecutorConfiguration.type),
+            IsIndeterminate = true
+        });
+        _forcefulCTS.Cancel();
+        ewh.WaitOne();
+
+        return Task.CompletedTask;
+
+        #endregion
+    }
+
+    public override async Task Restart(ISubject<ProgressInfo>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         if (!IsRunning) return;
 
@@ -361,7 +394,7 @@ public class ExecutorController : ExecutorControllerBase
         #region Stop server
 
         var stopProgress = taskProgress?.GetSubjectProgress();
-        await Stop(stopProgress);
+        await GracefullyStop(stopProgress, cancellationToken);
         taskProgress?.NextTask();
 
         #endregion
@@ -369,14 +402,15 @@ public class ExecutorController : ExecutorControllerBase
         #region Start server
 
         var runProgress = taskProgress?.GetSubjectProgress();
-        await Run(runProgress);
+        await Run(runProgress, cancellationToken);
         taskProgress?.NextTask();
 
         #endregion
     }
 
     public override async Task Install(
-        Dictionary<ExecutorType, ExecutorControllerBase> executors, ISubject<ProgressInfo>? progress = null)
+        Dictionary<ExecutorType, ExecutorControllerBase> executors, ISubject<ProgressInfo>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         #region Setup progress
 
@@ -426,7 +460,7 @@ public class ExecutorController : ExecutorControllerBase
         var downloadProgress = taskProgress?.GetProgress();
         if (taskProgress?.ActiveLeafTask != null)
             taskProgress.ActiveLeafTask.Name = string.Format("{0}の実行に必要なファイルをダウンロードしています", ExecutorConfiguration.type);
-        await Utils.DownloadAsync(downloadUrl, binaryPath, downloadProgress);
+        await Utils.DownloadAsync(downloadUrl, binaryPath, downloadProgress, cancellationToken);
         taskProgress?.NextTask();
 
         #endregion
@@ -436,7 +470,7 @@ public class ExecutorController : ExecutorControllerBase
         var extractProgress = taskProgress?.GetProgress();
         if (taskProgress?.ActiveLeafTask != null)
             taskProgress.ActiveLeafTask.Name = string.Format("{0}の実行に必要なファイルを解凍しています", ExecutorConfiguration.type);
-        Utils.ExtractZip(binaryPath, extractProgress);
+        Utils.ExtractZip(binaryPath, extractProgress, cancellationToken);
         taskProgress?.NextTask();
 
         #endregion
@@ -447,7 +481,7 @@ public class ExecutorController : ExecutorControllerBase
             throw new InvalidDataException("PostgreSQL executor is not found");
         var postgresqlExecutor = executors[ExecutorType.postgresql];
         var startProgress = taskProgress?.GetSubjectProgress();
-        await postgresqlExecutor.Run(startProgress);
+        await postgresqlExecutor.Run(startProgress, cancellationToken);
         taskProgress?.NextTask();
 
         #endregion
@@ -475,7 +509,7 @@ public class ExecutorController : ExecutorControllerBase
             .WithWorkingDirectory(ExecutorConfiguration.binaryDirectory)
             .WithStandardOutputPipe(PipeTarget.ToDelegate(ProcessStandardOutput))
             .WithStandardErrorPipe(PipeTarget.ToDelegate(ProcessStandardError))
-            .ExecuteAsync();
+            .ExecuteAsync(cancellationToken);
 
         taskProgress?.NextTask();
 
@@ -554,7 +588,7 @@ create index users_games_won_index ON users_games (player_won); --query games by
 create index game_events_game_id_index on game_events (game_id); --query for game events by the game ID
 create index game_events_user_id_index on game_events (user_id); --query for game events by the user ID
 ";
-        await File.WriteAllTextAsync(queryFile, query);
+        await File.WriteAllTextAsync(queryFile, query, cancellationToken);
 
         var initializeProgress = taskProgress?.GetSubjectProgress();
         initializeProgress?.OnNext(new ProgressInfo
@@ -569,7 +603,7 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
             .WithWorkingDirectory(ExecutorConfiguration.binaryDirectory)
             .WithStandardOutputPipe(PipeTarget.ToDelegate(ProcessStandardOutput))
             .WithStandardErrorPipe(PipeTarget.ToDelegate(ProcessStandardError))
-            .ExecuteAsync();
+            .ExecuteAsync(cancellationToken);
 
         taskProgress?.NextTask();
 
@@ -578,7 +612,10 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
         #region Stop PostgreSQL
 
         var stopProgress = taskProgress?.GetSubjectProgress();
-        await postgresqlExecutor.Stop(stopProgress);
+        if (cancellationToken.IsCancellationRequested)
+            await postgresqlExecutor.ForciblyStop(stopProgress);
+        else
+            await postgresqlExecutor.GracefullyStop(stopProgress, cancellationToken);
         taskProgress?.NextTask();
 
         #endregion
@@ -586,7 +623,7 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
 
     public override Task Update(
         Dictionary<ExecutorType, ExecutorControllerBase> executors, object oldExecutorConfiguration,
-        ISubject<ProgressInfo>? progress = null)
+        ISubject<ProgressInfo>? progress = null, CancellationToken cancellationToken = default)
     {
         return Task.CompletedTask;
     }
