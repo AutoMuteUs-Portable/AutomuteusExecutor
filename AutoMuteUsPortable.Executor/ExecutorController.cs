@@ -327,12 +327,16 @@ public class ExecutorController : ExecutorControllerBase
 
         #region Stop server
 
+        var ewh = new AutoResetEvent(false);
+        Stopped += (sender, args) => ewh.Set();
+
         progress?.OnNext(new ProgressInfo
         {
             name = string.Format("{0}を終了しています", ExecutorConfiguration.type),
             IsIndeterminate = true
         });
         _gracefulCTS.Cancel();
+        ewh.WaitOne();
         return Task.CompletedTask;
 
         #endregion
