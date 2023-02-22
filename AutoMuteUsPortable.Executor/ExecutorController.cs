@@ -334,7 +334,7 @@ public class ExecutorController : ExecutorControllerBase
 
         #region Stop server
 
-        var ewh = new AutoResetEvent(false);
+        var ewh = new ManualResetEvent(false);
         Stopped += (sender, args) => ewh.Set();
 
         progress?.OnNext(new ProgressInfo
@@ -357,7 +357,7 @@ public class ExecutorController : ExecutorControllerBase
 
         #region Stop server
 
-        var ewh = new AutoResetEvent(false);
+        var ewh = new ManualResetEvent(false);
         Stopped += (sender, args) => ewh.Set();
 
         progress?.OnNext(new ProgressInfo
