@@ -302,16 +302,15 @@ public class ExecutorController : ExecutorControllerBase
                 .Subscribe(
                     e =>
                     {
-                        switch (e)
+                        if (e is StartedCommandEvent started) OnStart();
+                    }, ex =>
+                    {
+                        if (ex is TaskCanceledException taskCanceledException)
                         {
-                            case StartedCommandEvent started:
-                                OnStart();
-                                break;
-                            case ExitedCommandEvent exited:
-                                OnStop();
-                                break;
+                            OnStop();
                         }
-                    });
+                        // TODO: log out exception
+                    }, OnStop);
         }
         catch (OperationCanceledException ex)
         {
