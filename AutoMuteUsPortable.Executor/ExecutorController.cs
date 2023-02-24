@@ -294,21 +294,18 @@ public class ExecutorController : ExecutorControllerBase
             .WithStandardErrorPipe(PipeTarget.ToDelegate(ProcessStandardError));
 
         _forcefulCTS = new CancellationTokenSource();
-        var linkedForcefulCTS = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _forcefulCTS.Token);
         _gracefulCTS = new CancellationTokenSource();
+        cancellationToken.Register(() => ForciblyStop());
         try
         {
-            cmd.Observe(Console.OutputEncoding, Console.OutputEncoding, linkedForcefulCTS.Token, _gracefulCTS.Token)
+            cmd.Observe(Console.OutputEncoding, Console.OutputEncoding, _forcefulCTS.Token, _gracefulCTS.Token)
                 .Subscribe(
                     e =>
                     {
                         if (e is StartedCommandEvent started) OnStart();
                     }, ex =>
                     {
-                        if (ex is TaskCanceledException taskCanceledException)
-                        {
-                            OnStop();
-                        }
+                        if (ex is TaskCanceledException taskCanceledException) OnStop();
                         // TODO: log out exception
                     }, OnStop);
         }
