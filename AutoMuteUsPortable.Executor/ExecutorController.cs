@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics;
 using System.Management;
 using System.Reactive.Subjects;
+using System.Text;
 using AutoMuteUsPortable.PocketBaseClient;
 using AutoMuteUsPortable.Shared.Controller.Executor;
 using AutoMuteUsPortable.Shared.Entity.ExecutorConfigurationBaseNS;
@@ -290,15 +291,15 @@ public class ExecutorController : ExecutorControllerBase
         var cmd = Cli.Wrap(Path.Combine(ExecutorConfiguration.binaryDirectory, @"automuteus.exe"))
             .WithEnvironmentVariables(ExecutorConfiguration.environmentVariables!)
             .WithWorkingDirectory(ExecutorConfiguration.binaryDirectory)
-            .WithStandardOutputPipe(PipeTarget.ToDelegate(ProcessStandardOutput))
-            .WithStandardErrorPipe(PipeTarget.ToDelegate(ProcessStandardError));
+            .WithStandardOutputPipe(PipeTarget.ToDelegate(ProcessStandardOutput, Encoding.UTF8))
+            .WithStandardErrorPipe(PipeTarget.ToDelegate(ProcessStandardError, Encoding.UTF8));
 
         _forcefulCTS = new CancellationTokenSource();
         _gracefulCTS = new CancellationTokenSource();
         cancellationToken.Register(() => ForciblyStop());
         try
         {
-            cmd.Observe(Console.OutputEncoding, Console.OutputEncoding, _forcefulCTS.Token, _gracefulCTS.Token)
+            cmd.Observe(Encoding.UTF8, Encoding.UTF8, _forcefulCTS.Token, _gracefulCTS.Token)
                 .Subscribe(
                     e =>
                     {
