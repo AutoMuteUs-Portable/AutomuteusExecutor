@@ -304,15 +304,11 @@ public class ExecutorController : ExecutorControllerBase
                     e =>
                     {
                         if (e is StartedCommandEvent started) OnStart();
-                    }, ex =>
-                    {
-                        if (ex is TaskCanceledException taskCanceledException) OnStop();
-                        // TODO: log out exception
-                    }, OnStop);
+                    }, _ => OnStop(), OnStop);
         }
         catch (OperationCanceledException ex)
         {
-            // ignored
+            OnStop();
         }
         catch
         {
@@ -609,10 +605,7 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
         #region Stop PostgreSQL
 
         var stopProgress = taskProgress?.GetSubjectProgress();
-        if (cancellationToken.IsCancellationRequested)
-            await postgresqlExecutor.ForciblyStop(stopProgress);
-        else
-            await postgresqlExecutor.GracefullyStop(stopProgress, cancellationToken);
+        await postgresqlExecutor.GracefullyStop(stopProgress, cancellationToken);
         taskProgress?.NextTask();
 
         #endregion
