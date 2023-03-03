@@ -295,7 +295,8 @@ public class ExecutorController : ExecutorControllerBase
             .WithEnvironmentVariables(ExecutorConfiguration.environmentVariables!)
             .WithWorkingDirectory(ExecutorConfiguration.binaryDirectory)
             .WithStandardOutputPipe(PipeTarget.ToDelegate(ProcessStandardOutput, Encoding.UTF8))
-            .WithStandardErrorPipe(PipeTarget.ToDelegate(ProcessStandardError, Encoding.UTF8));
+            .WithStandardErrorPipe(PipeTarget.ToDelegate(ProcessStandardError, Encoding.UTF8))
+            .WithValidation(CommandResultValidation.None);
 
         _forcefulCTS = new CancellationTokenSource();
         _gracefulCTS = new CancellationTokenSource();
@@ -504,6 +505,7 @@ public class ExecutorController : ExecutorControllerBase
             .WithWorkingDirectory(ExecutorConfiguration.binaryDirectory)
             .WithStandardOutputPipe(PipeTarget.ToDelegate(ProcessStandardOutput))
             .WithStandardErrorPipe(PipeTarget.ToDelegate(ProcessStandardError))
+            .WithValidation(CommandResultValidation.None)
             .ExecuteAsync(cancellationToken);
 
         taskProgress?.NextTask();
@@ -598,6 +600,7 @@ create index game_events_user_id_index on game_events (user_id); --query for gam
             .WithWorkingDirectory(ExecutorConfiguration.binaryDirectory)
             .WithStandardOutputPipe(PipeTarget.ToDelegate(ProcessStandardOutput))
             .WithStandardErrorPipe(PipeTarget.ToDelegate(ProcessStandardError))
+            .WithValidation(CommandResultValidation.None)
             .ExecuteAsync(cancellationToken);
 
         taskProgress?.NextTask();
