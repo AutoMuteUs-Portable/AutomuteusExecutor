@@ -144,6 +144,8 @@ public class ExecutorController : ExecutorControllerBase
 
         ExecutorConfiguration = executorConfiguration;
 
+        Log.Debug("ExecutorController is instantiated with {@ExecutorConfiguration}", ExecutorConfiguration);
+
         #endregion
     }
 
